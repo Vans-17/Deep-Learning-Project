@@ -1,0 +1,12 @@
+Python 3.11.9 Required
+diffusers==0.27.2
+transformers==4.40.0
+accelerate==0.29.3
+insightface==0.7.3
+face-alignment==1.4.1
+onnxruntime-gpu==1.17.1
+kornia==0.7.2
+scipy==1.11.4
+numpy<2.0.0
+matplotlib
+tqdm
