@@ -6,7 +6,7 @@ Student IDs: 2023A2PS0275P, 2023A2PS0252P, 2023A2PS1314P, 2023A2PS1301P
 
 Emails: f20230275@pilani.bits-pilani.ac.in, f20230252@pilani.bits-pilani.ac.in, f20231314@pilani.bits-pilani.ac.in, f20231301@pilani.bits-pilani.ac.in
 
-Chosen Project Title: PupperMaster
+Chosen Project Title: PuppetMaster
 
 Faculty/TA Mentor: Prof. Pratik Narang
 
