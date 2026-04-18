@@ -1,6 +1,6 @@
 # 🎭 LDFaceNet-Lite + BFM 3D Face Map
 
-**Course Project Edition** An optimized, geometrically-grounded face swapping and animation pipeline based on Latent Diffusion and the **Basel Face Model (BFM)**.
+An optimized, geometrically-grounded face swapping and animation pipeline based on Latent Diffusion and the **Basel Face Model (BFM)**.
 
 ---
 
