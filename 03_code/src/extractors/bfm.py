@@ -114,3 +114,83 @@ class BFMExtractor:
 
 tdmm = BFMExtractor()
 print('Stage 1-B ready (scipy edition)')
+
+# ── Replace BFMExtractor._estimate_pose with this better version ──────────
+
+import face_alignment
+from face_alignment import LandmarksType
+import numpy as np
+import cv2
+from scipy.spatial.transform import Rotation
+
+# Standard 3D face model points (mm) — same for everyone
+FACE_3D_MODEL = np.array([
+    [ 0.000,  0.000,   0.000],   # nose tip        lmk 30
+    [ 0.000, -330.000, -65.000], # chin             lmk 8
+    [-225.000, 170.000,-135.000],# left eye corner  lmk 36
+    [ 225.000, 170.000,-135.000],# right eye corner lmk 45
+    [-150.000,-150.000,-125.000],# left mouth       lmk 48
+    [ 150.000,-150.000,-125.000] # right mouth      lmk 54
+], dtype=np.float64)
+
+def estimate_pose_robust(lmks_2d, img_hw):
+    """More robust solvePnP using standard 6-point model."""
+    H, W = img_hw
+    image_pts = np.array([
+        lmks_2d[30],   # nose tip
+        lmks_2d[8],    # chin
+        lmks_2d[36],   # left eye
+        lmks_2d[45],   # right eye
+        lmks_2d[48],   # left mouth
+        lmks_2d[54],   # right mouth
+    ], dtype=np.float64)
+
+    focal   = W  # use width as focal length
+    cam_mat = np.array([
+        [focal, 0,     W / 2],
+        [0,     focal, H / 2],
+        [0,     0,     1    ]
+    ], dtype=np.float64)
+
+    ok, rvec, tvec = cv2.solvePnP(
+        FACE_3D_MODEL, image_pts, cam_mat,
+        np.zeros((4, 1)),
+        flags=cv2.SOLVEPNP_ITERATIVE
+    )
+    if not ok:
+        return np.zeros(6, dtype=np.float32)
+
+    rmat, _ = cv2.Rodrigues(rvec)
+    euler   = Rotation.from_matrix(rmat).as_euler('yxz', degrees=True)
+    yaw, pitch, roll = euler
+
+    # solvePnP often returns yaw near ±180 for frontal faces — fix it
+    if abs(yaw) > 90:
+        yaw = yaw - np.sign(yaw) * 180
+
+    return np.array([yaw, pitch, roll,
+                     float(tvec[0]), float(tvec[1]), float(tvec[2])],
+                    dtype=np.float32)
+
+# ── Monkey-patch into your existing tdmm instance ────────────────────────
+import types
+tdmm._estimate_pose = types.MethodType(
+    lambda self, lmks_2d, img_hw: estimate_pose_robust(lmks_2d, img_hw),
+    tdmm
+)
+
+print("✅ Pose estimator patched — testing on first 5 LFW images...")
+
+# ── Quick validation ──────────────────────────────────────────────────────
+from pathlib import Path
+from PIL import Image
+
+FACES_DIR = Path(r"C:\Users\pragn\Desktop\e\DL\face_env\lfw_flat")
+for path in list(FACES_DIR.glob("*.jpg"))[:5]:
+    img = np.array(Image.open(path).convert("RGB"))
+    try:
+        attrs = tdmm.extract(img)
+        yaw   = attrs['pose'][0].item()
+        print(f"  {path.name:35s}  yaw={yaw:+.1f}°")
+    except Exception as e:
+        print(f"  {path.name:35s}  ❌ {e}")
