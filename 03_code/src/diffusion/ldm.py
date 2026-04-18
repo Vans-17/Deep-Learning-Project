@@ -1,38 +1,73 @@
-# ── Load in fp16 to halve VRAM ────────────────────────────────────────────────
-LDM_MODEL_ID = 'CompVis/stable-diffusion-v1-4'
+# src/diffusion/ldm.py
+"""
+LDM loader.
+Loads CompVis/stable-diffusion-v1-4 in fp16 and exposes the four objects
+that the rest of the pipeline needs:
+    vae       : AutoencoderKL
+    unet      : UNet2DConditionModel
+    scheduler : DDIMScheduler
+    NULL_EMB  : Tensor (1, 77, 768) — null text conditioning
 
-print(f'Loading LDM: {LDM_MODEL_ID} ...')
-pipe = StableDiffusionPipeline.from_pretrained(
-    LDM_MODEL_ID,
-    torch_dtype=torch.float16,
-    safety_checker=None,
-    requires_safety_checker=False,
-).to(DEVICE)
+All model weights are frozen (requires_grad=False).
+xformers memory-efficient attention is enabled if available.
+"""
 
-# Enable memory-efficient attention if xformers is available
-try:
-    pipe.enable_xformers_memory_efficient_attention()
-    print('  xformers memory-efficient attention enabled ✅')
-except Exception:
-    # Not fatal; just uses standard attention
-    print('  xformers not available — using standard attention')
+import torch
+from diffusers import DDIMScheduler, StableDiffusionPipeline
 
-vae       = pipe.vae.eval()
-unet      = pipe.unet.eval()
-scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
-scheduler.set_timesteps(20)   # 50 → 20 steps
-tokenizer = pipe.tokenizer
-text_enc  = pipe.text_encoder
+from ..config import cfg
 
-for model in [vae, unet, text_enc]:
-    for p in model.parameters():
-        p.requires_grad_(False)
 
-with torch.no_grad():
-    null_tok = tokenizer([''], return_tensors='pt', padding='max_length',
-                         max_length=77, truncation=True).input_ids.to(DEVICE)
-    NULL_EMB = text_enc(null_tok)[0]  # (1, 77, 768)
+def load_ldm(model_id: str = cfg.ldm_model_id):
+    """
+    Load the Stable Diffusion pipeline and extract its components.
 
-vram_used = torch.cuda.memory_allocated() / 1e9 if DEVICE == 'cuda' else 0
-print(f'\n✅ LDM loaded | VRAM used so far: {vram_used:.2f} GB')
-print(f'   U-Net params: {sum(p.numel() for p in unet.parameters())/1e6:.0f}M')
+    Args:
+        model_id: HuggingFace model identifier.
+
+    Returns:
+        (vae, unet, scheduler, NULL_EMB) — all on cfg.device / cfg.dtype.
+    """
+    print(f"Loading LDM: {model_id} …")
+    pipe = StableDiffusionPipeline.from_pretrained(
+        model_id,
+        torch_dtype=cfg.dtype,
+        safety_checker=None,
+        requires_safety_checker=False,
+    ).to(cfg.device)
+
+    # Optional memory-efficient attention
+    try:
+        pipe.enable_xformers_memory_efficient_attention()
+        print("  xformers memory-efficient attention enabled ✅")
+    except Exception:
+        print("  xformers not available — using standard attention")
+
+    vae      = pipe.vae.eval()
+    unet     = pipe.unet.eval()
+    scheduler = DDIMScheduler.from_config(pipe.scheduler.config)
+    scheduler.set_timesteps(cfg.ddim_steps_denoise)
+
+    # Freeze all weights — we never train the backbone
+    for model in [vae, unet, pipe.text_encoder]:
+        for p in model.parameters():
+            p.requires_grad_(False)
+
+    # Pre-compute null text embedding (used for CFG unconditional branch)
+    with torch.no_grad():
+        null_tok = pipe.tokenizer(
+            [""],
+            return_tensors="pt",
+            padding="max_length",
+            max_length=77,
+            truncation=True,
+        ).input_ids.to(cfg.device)
+        NULL_EMB = pipe.text_encoder(null_tok)[0]  # (1, 77, 768)
+
+    vram_used = (
+        torch.cuda.memory_allocated() / 1e9 if cfg.device == "cuda" else 0.0
+    )
+    print(f"✅ LDM loaded | VRAM used: {vram_used:.2f} GB")
+    print(f"   UNet params: {sum(p.numel() for p in unet.parameters()) / 1e6:.0f}M")
+
+    return vae, unet, scheduler, NULL_EMB
