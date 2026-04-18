@@ -45,3 +45,48 @@ class GuidedDenoiser:
             z = z.clamp(-8, 8) 
 
         return z
+
+
+##LATENT BLEND AND DECODE 
+import torch.nn.functional as F
+
+def latent_blend_and_decode(z_swap, z_target, face_mask, blend_hardness=0.5):
+    LATENT = z_swap.shape[-1]  # 64 for 512px
+
+    # ── Normalise mask to float32 numpy 2D ───────────────────────────────
+    if isinstance(face_mask, torch.Tensor):
+        fm = face_mask.squeeze().cpu().float().numpy()
+    elif isinstance(face_mask, np.ndarray):
+        fm = face_mask.squeeze().astype(np.float32)
+        if fm.max() > 1.0:
+            fm = fm / 255.0
+    else:
+        # PIL
+        fm = np.array(face_mask.convert("L")).astype(np.float32) / 255.0
+
+    # ── Force resize to exact latent size using torch (most reliable) ────
+    fm_tensor = torch.tensor(fm, dtype=torch.float32)
+    # Ensure 4D for interpolate: (1, 1, H, W)
+    while fm_tensor.ndim < 4:
+        fm_tensor = fm_tensor.unsqueeze(0)
+
+    M = F.interpolate(fm_tensor, size=(LATENT, LATENT),
+                      mode='bilinear', align_corners=False)  # (1, 1, LATENT, LATENT)
+    M = M.to(DEVICE)
+
+    # ── Sharpen ───────────────────────────────────────────────────────────
+    M = torch.clamp((M - 0.5) * (1 + blend_hardness) + 0.5, 0, 1)
+
+    print(f"  [blend] M:{M.shape} zs:{z_swap.shape} zt:{z_target.shape}")
+
+    # ── Blend ─────────────────────────────────────────────────────────────
+    z_blend = M * z_swap.float() + (1 - M) * z_target.float()
+
+    # ── Decode ────────────────────────────────────────────────────────────
+    vae.to(torch.float32)
+    with torch.no_grad():
+        decoded = vae.decode(z_blend / vae.config.scaling_factor).sample
+
+    return decoded
+
+print("✅ latent_blend_and_decode fixed (F.interpolate — handles any mask size)")
