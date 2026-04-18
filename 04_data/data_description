@@ -1,0 +1,81 @@
+# Dataset Description
+
+## LFW (Labeled Faces in the Wild)
+
+**Source:** http://vis-www.cs.umass.edu/lfw/  
+**Full dataset size:** 13,233 images of 5,749 individuals  
+**License:** Unrestricted for academic/research use  
+
+---
+
+## How It Is Used in This Project
+
+This project performs **inference only — no training is done**.  
+LFW is used as a source of real face image pairs for running and evaluating the face swap pipeline.  
+Each run takes two LFW images:
+- **Source image** — identity donor (whose face is transferred)
+- **Target image** — pose/expression donor (whose head pose and expression are kept)
+
+---
+
+## Subset and Filtering
+
+| Property | Value |
+|---|---|
+| Directory format | All images flattened into a single folder (`lfw_flat/`) — no person subfolders |
+| Filtering criterion | Frontal faces only: BFM-estimated yaw angle `< 40°` |
+| Pair constraint | Source and target are always different people |
+| Typical pool scanned | First 200–500 randomly shuffled images per run |
+| Images used per eval | 3 source-target pairs (6 images total) |
+
+---
+
+## Runtime Preprocessing
+
+No offline preprocessing is applied. All steps happen at runtime:
+
+1. Image loaded as RGB via PIL
+2. Resized to `512×512` (or `192×192` in low-VRAM mode)
+3. Face detected and 68 landmarks extracted via `face_alignment`
+4. Head pose estimated — images with `|yaw| > 40°` are skipped
+5. Tensor normalized to `[-1, 1]` before VAE encoding
+
+---
+
+## Train / Val / Test Split
+
+**None.** This is a training-free inference pipeline. There is no train, validation, or test split. Quantitative evaluation is performed by running the full pipeline on 3 randomly sampled frontal pairs and computing ID-sim, SSIM, and L2 metrics.
+
+---
+
+## Sample Inputs
+
+A small set of pre-selected frontal pairs is provided in `sample_inputs/` for reproducible demo and evaluation runs.
+
+```
+04_data/
+└── sample_inputs/
+    ├── src_1.jpg    # Identity donor — pair 1
+    ├── tgt_1.jpg    # Pose donor    — pair 1
+    ├── src_2.jpg
+    ├── tgt_2.jpg
+    ├── src_3.jpg
+    └── tgt_3.jpg
+```
+
+These 6 images are the ones used in the live viva demo and for generating the results in `05_results/`.
+
+---
+
+## Why LFW
+
+- Publicly available with no license restrictions for academic use
+- Large enough to reliably find frontal pairs via random sampling
+- Standard benchmark in face recognition literature — ID-sim scores are directly comparable to published face swap results
+- Unconstrained real-world images with varied lighting, backgrounds, and poses — tests the pipeline on realistic conditions
+
+---
+
+## Download
+
+See `dataset_links.txt` for the download link and access instructions.
