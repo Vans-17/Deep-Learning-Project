@@ -1,0 +1,41 @@
+# ── Model ─────────────────────────────────────────────────────────────────
+ldm_model_id:         "CompVis/stable-diffusion-v1-4"
+arcface_model:        "buffalo_sc"
+clip_model:           "openai/clip-vit-base-patch32"
+det_size:             320          # ArcFace detection size
+
+# ── Resolution ────────────────────────────────────────────────────────────
+img_size:             512          # change to 192 if OOM
+latent_size:          64           # img_size // 8
+
+# ── Diffusion ─────────────────────────────────────────────────────────────
+num_ddim_steps:       50
+ddim_inversion_steps: 30
+cfg_guidance_scale:   3.5
+strength:             0.45         # how much of target to keep
+
+# ── Lambda weights ────────────────────────────────────────────────────────
+lambda_id:            4.0
+lambda_shape:         2.0          # SOURCE shape → identity geometry
+lambda_pose:          0.1          # TARGET pose
+lambda_expr:          0.1          # TARGET expression
+lambda_light:         0.5
+
+# ── BFM Extractor ─────────────────────────────────────────────────────────
+n_shape_coeffs:       40
+n_expr_coeffs:        10
+max_yaw_deg:          45
+max_pitch_deg:        30
+
+# ── Identity Projector ────────────────────────────────────────────────────
+num_id_tokens:        2
+cross_attn_dim:       768
+arcface_dim:          512
+clip_id_dim:          128
+
+# ── Adapter ───────────────────────────────────────────────────────────────
+injection_scale:      0.02
+injection_until:      0.9          # fraction of steps to inject BFM residuals
+
+# ── Blending ──────────────────────────────────────────────────────────────
+blend_hardness:       0.7
