@@ -1,17 +1,74 @@
-# Deep-Learning-Project
-Controlled Deepfake Generation: Attribute-Aware and Identity-Stable Face Synthesis
-Problem Statement: Modern deepfake generators can swap faces or generate realistic portraits, but users have very limited control over what stays fixed and what is allowed to change. For example, changing pose or expression often unintentionally alters identity, skin tone, or facial attributes. This project focuses on building a controllable deepfake generation pipeline where identity, pose, expression, and lighting can be manipulated independently using existing GAN or diffusion-based models. The goal is not to build a new generator from scratch, but to add control knobs on top of pre-trained deepfake models so that generation becomes predictable, stable, and user guided.
+# 🎭 LDFaceNet-Lite + BFM 3D Face Map
 
-Key Papers:
+**Course Project Edition** An optimized, geometrically-grounded face swapping and animation pipeline based on Latent Diffusion and the **Basel Face Model (BFM)**.
 
-Dwij Mehta, Aditya Mehta, Pratik Narang, “LDFaceNet: Latent Diffusion-based Network for High-Fidelity Deepfake Generation,” arXiv, 2024. https://arxiv.org/abs/2408.02078
+---
 
-Wenliang Zhao et al., “DiffSwap: High-Fidelity and Controllable Face Swapping via 3D-Aware Masked Diffusion,” CVPR, 2023. https://openaccess.thecvf.com/content/CVPR2023/papers/Zhao_DiffSwap_High-Fidelity_and_Controllable_Face_Swapping_via_3D-Aware_Masked_Diffusion_CVPR_2023_paper.pdf
+## 🛠 Project Description
+This project implements a 3D-aware face swapping technique. By using a **56-dimensional BFM feature vector** (40-d shape, 10-d expression, 6-d pose), the model disentangles identity from geometry. 
 
-Yunjey Choi et al., “StarGAN v2: Diverse Image Synthesis for Multiple Domains,” CVPR, 2020.
+**The "DiffSwap" Trick:** This pipeline performs high-fidelity transfer by blending the **Source Shape** coefficients with the **Target Pose/Expression**, ensuring the swapped face fits the target's orientation while maintaining the source's structural bone density.
 
-https://openaccess.thecvf.com/content_CVPR_2020/papers/Choi_StarGAN_v2_Diverse_Image_Synthesis_for_Multiple_Domains_CVPR_2020_paper.pdf
+---
 
-Expected Research Outcome:
+## 💻 Environment Setup
 
-A user-controllable deepfake generation system where students demonstrate explicit controls such as “change expression only,” “change pose only,” or “keep identity fixed under variation.” The research contribution could be a simple latent-space constraint, disentanglement loss, or conditioning strategy that improves attribute isolation compared to baselines. Demo: an interactive UI where sliders control identity strength, pose, and expression, with side-by-side comparisons showing reduced identity drift and improved consistency.
+### ⚠️ Strict Requirements
+* **Python Version:** `3.11.9` (Libraries are strictly incompatible with other versions).
+* **Hardware:** Optimized for **NVIDIA RTX 3050** (Laptop/Desktop) with 4–8 GB VRAM.
+* **ONNX Runtime:** Requires an older version (`1.17.1`) for model compatibility.
+
+### 📦 Dependency Versions
+
+# Core Diffusion & Transformers
+pip install diffusers==0.27.2 transformers==4.40.0 accelerate==0.29.3
+
+# Face Analysis & Processing
+pip install insightface==0.7.3 face-alignment==1.4.1 kornia==0.7.2 scipy==1.11.4
+
+# Compatibility-specific ONNX
+pip install onnxruntime-gpu==1.17.1
+🚀 Execution Commands
+1. Training & Fine-tuning
+The PoseExpressionAdapter and IdentityProjector include trainable parameters. Training focuses on the Orthogonality Loss to ensure CLIP identity features don't bleed into pose features:
+
+Python
+# To train the disentangler projections:
+loss = clip_disentangler.orthogonality_loss()
+loss.backward()
+2. Evaluation
+You can evaluate the 3DMM extractor's accuracy by running the pose estimation validation:
+
+Python
+for path in list(FACES_DIR.glob("*.jpg"))[:5]:
+    img = np.array(Image.open(path).convert("RGB"))
+    attrs = tdmm.extract(img)
+    print(f"Yaw: {attrs['pose'][0].item():+.1f}°")
+3. Demo / Inference
+Launch the interactive UI directly within the notebook:
+
+Python
+# Launch the GUI
+display(ui)
+
+# Or run via manual pipeline call:
+pipeline_result = run_pipeline(
+    source_img=src_img,    # Identity provider
+    target_img=tgt_img,    # Pose/Expression provider
+    lambda_shape=1.0,      # Weight for source 3D shape
+    strength=0.02          # Injection weight
+)
+📉 Hardware Optimization
+To run on 4GB VRAM without crashes, the project uses:
+
+FP16 Precision: All latents and weights are processed in half-precision.
+
+CPU Offloading: The CLIP backbone is moved to CPU when idle.
+
+Memory Management:
+
+Python
+import os
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+
+
