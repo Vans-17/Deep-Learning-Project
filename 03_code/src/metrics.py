@@ -2,6 +2,7 @@
 #ABLATION HELPER LOOP
 from skimage.metrics import structural_similarity as ssim
 import cv2
+import numpy as np
 
 def compute_metrics(src_img, tgt_img, result_img):
     """Compute all three metrics for one result."""
