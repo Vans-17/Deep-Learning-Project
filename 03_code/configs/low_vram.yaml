@@ -1,0 +1,9 @@
+# Low VRAM preset — overrides default.yaml
+# Usage: automatically loaded if VRAM < 6GB, or pass --config configs/low_vram.yaml
+
+img_size:             192
+latent_size:          24
+num_ddim_steps:       20
+ddim_inversion_steps: 20
+cfg_guidance_scale:   3.0
+strength:             0.5
