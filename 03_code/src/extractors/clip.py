@@ -1,3 +1,10 @@
+ 
+import numpy as np
+import torch
+import torch.nn as nn
+from transformers import CLIPProcessor, CLIPVisionModelWithProjection
+from ..config import cfg
+ 
 class CLIPDisentangler(nn.Module):
     """
     Same as original but:
