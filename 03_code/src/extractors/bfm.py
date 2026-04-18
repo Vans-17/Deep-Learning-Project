@@ -3,6 +3,10 @@
 # from face3d import mesh                ← DELETE  
 # from face3d.morphable_model import MorphabelModel  ← DELETE
 
+import types
+import numpy as np
+import torch
+from ..config import cfg
 class BFMExtractor:
     """
     Landmark-based BFM coefficient approximation using scipy only.
