@@ -7,8 +7,7 @@ class ArcFaceIdentityExtractor:
     Uses buffalo_sc (small/fast) instead of buffalo_l.
     """
     def __init__(self, device=DEVICE):
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if device == 'cuda' \
-                    else ['CPUExecutionProvider']
+        providers = ['CPUExecutionProvider']
         # buffalo_sc = smaller model, still accurate enough for a course project
         self.app = FaceAnalysis(name='buffalo_sc', providers=providers)
         # Smaller detection size saves VRAM
