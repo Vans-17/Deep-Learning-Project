@@ -1,3 +1,8 @@
+import torch
+from diffusers import DDIMScheduler
+ 
+from ..config import cfg
+
 class GuidedDenoiser:
     @torch.no_grad()
     def denoise(self, z_T, id_tokens, src_id_emb, pose_expr_out, sh_coeffs,
