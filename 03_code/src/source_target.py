@@ -4,6 +4,9 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import matplotlib.pyplot as plt
+from typing import Optional, Tuple
+
+from .config import cfg
 
 # ── Mount Google Drive ────────────────────────────────────────────────────
 from google.colab import drive
