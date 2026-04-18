@@ -1,3 +1,8 @@
+import torch
+import torch.nn as nn
+ 
+from ..config import cfg
+ 
 class PoseExpressionAdapter(nn.Module):
     """
     BFM-upgraded adapter. Input is now:
