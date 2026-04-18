@@ -1,1 +1,13 @@
+Team ID: Team 3
 
+Member Names: Vanshika Agarwal, Pragna Das, Nupur Saxena, Pinak Sharma
+
+Student IDs: 2023A2PS0275P, 2023A2PS0252P, 2023A2PS1314P, 2023A2PS1301P
+
+Emails: f20230275@pilani.bits-pilani.ac.in, f20230252@pilani.bits-pilani.ac.in, f20231314@pilani.bits-pilani.ac.in, f20231301@pilani.bits-pilani.ac.in
+
+Chosen Project Title: PupperMaster
+
+Faculty/TA Mentor: Prof. Pratik Narang
+
+Topic Number/Name: Topic 2 / Controlled Deepfake Generation: Attribute-Aware and Identity-Stable Face Synthesis
