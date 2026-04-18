@@ -1,3 +1,8 @@
+import torch
+from diffusers import DDIMScheduler
+ 
+from ..config import cfg
+ 
 @torch.no_grad()
 def ddim_inversion(z_start: torch.Tensor, num_steps: int = 30) -> torch.Tensor:
     inv_sch = DDIMScheduler.from_config(scheduler.config)
