@@ -1,4 +1,13 @@
 @torch.no_grad()
+from src.extractors.arcface import ArcFaceIdentityExtractor
+from src.extractors.bfm import BFMExtractor
+from src.extractors.clip import CLIPDisentangler
+from src.extractors.segmentor import LiteFaceSegmentor
+from src.adaptors.identity_projector import IdentityProjector
+from src.adaptors.illumination_adain import IlluminationAdain
+from src.adaptors.pose_expr_adaptors import PoseExpressionAdapter
+from src.diffusion.denoiser import GuidedDenoiser 
+
 def run_pipeline_v2(
     source_img, target_img,
     lambda_id=2.5,
