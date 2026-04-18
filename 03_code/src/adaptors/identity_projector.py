@@ -1,3 +1,8 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+ 
+from ..config import cfg
 class IdentityProjector(nn.Module):
     """
     Projects ArcFace + CLIP-id embeddings into cross-attention token space.
