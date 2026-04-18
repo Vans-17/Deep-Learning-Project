@@ -1,3 +1,8 @@
+import torch
+import torch.nn as nn
+ 
+from ..config import cfg
+
 class IlluminationAdaIN(nn.Module):
     """Same as original, just smaller hidden dim (256→128)."""
 
