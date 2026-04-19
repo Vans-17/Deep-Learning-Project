@@ -23,7 +23,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 3. CycleGAN (https://share.google/ocFCTFMMMKmxjzUs7)
+## 3. CycleGAN (https://noiselab.ucsd.edu/ECE228_2018/Reports/Report16.pdf)
 - **Core Idea**: Unpaired image-to-image translation using cycle consistency loss.
 - **Influence on our work**:
   - Provided foundational understanding of **image-to-image translation without paired data**.
