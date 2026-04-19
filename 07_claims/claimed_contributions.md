@@ -39,8 +39,6 @@
   - Outputs were noisy or misaligned, reducing effectiveness in masking and blending.
 - **Low-resolution outputs**:
   - Generated images lacked sharpness and fine-grained details.
-- **DDIM inversion (default pipeline)**:
-  - Although implemented, it was not stable enough for regular use.
 
 ---
 
