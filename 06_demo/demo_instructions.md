@@ -4,7 +4,7 @@
 
 ---
 
-## Before the Viva (Do This in Advance)
+## Before the Viva
 
 - [ ] Environment is created and all dependencies installed (see `README.md`)
 - [ ] LFW images are in place at `04_data/sample_inputs/`
