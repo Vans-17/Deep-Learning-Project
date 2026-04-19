@@ -4,7 +4,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 1. LDFaceNet (Pratik Narang et al.)
+## 1. LDFaceNet (https://arxiv.org/abs/2408.02078)
 - **Core Idea**: Uses latent diffusion for face swapping with identity and segmentation guidance, without requiring retraining.
 - **Influence on our work**:
   - Served as the **primary baseline architecture**.
@@ -14,7 +14,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 2. DiffSwap
+## 2. DiffSwap (https://openaccess.thecvf.com/content/CVPR2023/papers/Zhao_DiffSwap_High-Fidelity_and_Controllable_Face_Swapping_via_3D-Aware_Masked_Diffusion_CVPR_2023_paper.pdf)
 - **Core Idea**: Diffusion-based face swapping with strong identity preservation and high-quality synthesis.
 - **Influence on our work**:
   - Reinforced the effectiveness of **diffusion models for realistic face swapping**.
@@ -23,7 +23,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 3. CycleGAN
+## 3. CycleGAN (https://share.google/ocFCTFMMMKmxjzUs7)
 - **Core Idea**: Unpaired image-to-image translation using cycle consistency loss.
 - **Influence on our work**:
   - Provided foundational understanding of **image-to-image translation without paired data**.
@@ -32,7 +32,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 4. StarGAN
+## 4. StarGAN (https://openaccess.thecvf.com/content_CVPR_2020/papers/Choi_StarGAN_v2_Diverse_Image_Synthesis_for_Multiple_Domains_CVPR_2020_paper.pdf)
 - **Core Idea**: Multi-domain image-to-image translation using a single unified model.
 - **Influence on our work**:
   - Inspired the idea of **handling multiple attributes (pose, expression, illumination)** in one framework.
@@ -41,7 +41,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 5. ArcFace
+## 5. ArcFace (https://arxiv.org/abs/1801.07698)
 - **Core Idea**: Deep face recognition model using additive angular margin loss for highly discriminative embeddings.
 - **Influence on our work**:
   - Used as the **primary identity feature extractor (512-d embeddings)**.
@@ -50,7 +50,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 6. CLIP (Contrastive Language–Image Pretraining)
+## 6. CLIP (Contrastive Language–Image Pretraining) (https://www.sciencedirect.com/science/article/abs/pii/S0893608022004579)
 - **Core Idea**: Learns joint image-text representations with strong semantic understanding.
 - **Influence on our work**:
   - Used to extract **additional identity-related features**.
@@ -77,7 +77,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 9. DDIM (Denoising Diffusion Implicit Models)
+## 9. DDIM (Denoising Diffusion Implicit Models) (https://crad.ict.ac.cn/cn/article/pdf/preview/10.7544/issn1000-1239.202440191.pdf)
 - **Core Idea**: Deterministic diffusion sampling enabling inversion and faster generation.
 - **Influence on our work**:
   - Implemented for **latent inversion capability**.
