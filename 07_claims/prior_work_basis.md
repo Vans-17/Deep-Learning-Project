@@ -59,7 +59,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 7. 3D Morphable Models (BFM - Basel Face Model)
+## 7. 3D Morphable Models (BFM - Basel Face Model)(https://arxiv.org/abs/1709.08398)
 - **Core Idea**: Parametric 3D face model capturing shape, expression, and pose.
 - **Influence on our work**:
   - Provided structured features for **pose, shape, and expression decomposition**.
@@ -68,7 +68,7 @@ This project builds upon several key research papers and models in the areas of 
 
 ---
 
-## 8. AdaIN (Adaptive Instance Normalization)
+## 8. AdaIN (Adaptive Instance Normalization)(https://arxiv.org/abs/1703.06868)
 - **Core Idea**: Aligns feature statistics (mean and variance) to transfer style.
 - **Influence on our work**:
   - Inspired the **illumination control module**.
