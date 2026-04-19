@@ -94,9 +94,7 @@ Open `05_results/ablations.csv` and highlight:
 
 ---
 
-## Backup — If Live Run Is Too Slow
-
-If the RTX 3050 is running slow during viva, show the pre-saved results:
+## Pre-Saved results for Reference
 
 ```
 05_results/figures/ablation_study.png      ← ablation grid
@@ -106,16 +104,6 @@ If the RTX 3050 is running slow during viva, show the pre-saved results:
 ```
 
 > **Note:** Backup images are supplementary only. Always attempt the live run first.
-
----
-
-## Talking Points Checklist
-
-- [ ] Explain the two inputs: identity donor vs pose donor
-- [ ] Explain BFM shape coefficients carry identity geometry (the DiffSwap trick)
-- [ ] Show that removing shape (`lambda_shape=0`) hurts ID-sim
-- [ ] Point to ablations CSV for quantitative backing
-- [ ] Mention runtime: ~2–3 min per pair on RTX 3050, ~5–6 GB VRAM peak
 
 ---
 
