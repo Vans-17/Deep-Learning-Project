@@ -1,16 +1,13 @@
 # Demo Instructions — LDFaceNet-BFM
 **Target time: 3–5 minutes**  
-**Run this end-to-end during viva to show the system working on real inputs.**
 
 ---
 
-## Before the Viva
+## Checklist before starting the main program
 
 - [ ] Environment is created and all dependencies installed (see `README.md`)
 - [ ] LFW images are in place at `04_data/sample_inputs/`
 - [ ] Models have been downloaded at least once (first run downloads ~5 GB)
-- [ ] Run the pipeline once as a dry run to confirm no errors
-- [ ] Keep `05_results/ablations.csv` open in a tab to show quantitative results
 
 ---
 
@@ -74,8 +71,6 @@ python scripts/infer.py \
 ```
 
 Compare `live_result.png` vs `no_shape.png` side by side.
-
-**Talk through:** *"Without the BFM shape coefficients, identity preservation drops — you can see the face geometry shifts toward the target person. This confirms that shape conditioning is the key contribution over the baseline."*
 
 Then point to `05_results/ablations.csv` and show the ID-sim drop in the `w/o Shape` row.
 
