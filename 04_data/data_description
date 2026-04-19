@@ -59,11 +59,9 @@ A small set of pre-selected frontal pairs is provided in `sample_inputs/` for re
     ├── tgt_1.jpg    # Pose donor    — pair 1
     ├── src_2.jpg
     ├── tgt_2.jpg
-    ├── src_3.jpg
-    └── tgt_3.jpg
 ```
 
-These 6 images are the ones used in the live viva demo and for generating the results in `05_results/`.
+These 4 images are the ones used in the live viva demo and for generating the results in `05_results/`.
 
 ---
 
