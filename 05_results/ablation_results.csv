@@ -1,0 +1,9 @@
+Config,ID-sim,SSIM,L2_down
+1. Baseline (Full),-0.0099,0.8699,234.4
+2. w/o Pose,0.0273,0.8995,176.3
+3. w/o Expression,0.0676,0.8897,140.6
+4. w/o Identity,-0.023,0.9054,104.8
+5. w/o Pose+Expr,0.0211,0.8687,212.4
+6. w/o Shape,0.0505,0.9039,127.5
+7. ID Only,0.0135,0.8804,169.2
+8. Shape+ID Only,-0.0099,0.8866,202.7
