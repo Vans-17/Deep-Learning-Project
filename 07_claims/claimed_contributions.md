@@ -36,11 +36,6 @@
   - Reduced effectiveness of latent blending.
 - **Low output resolution**:
   - Generated images lacked fine details and sharpness.
-- **DDIM inversion in practice**:
-  - Not stable enough for consistent use in the pipeline.
-- **Incomplete module integration**:
-  - Illumination control was not fully connected to the generation process.
-- Overall, results were **not consistently high-quality or robust**.
 
 ---
 
