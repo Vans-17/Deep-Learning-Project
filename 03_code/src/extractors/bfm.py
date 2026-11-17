@@ -1,88 +1,78 @@
+# No face3d import needed — BFM fit is self-contained
+# import face3d                          ← DELETE
+# from face3d import mesh                ← DELETE  
+# from face3d.morphable_model import MorphabelModel  ← DELETE
+
 import types
 import numpy as np
 import torch
-import cv2
-import face_alignment
-from scipy.spatial.transform import Rotation
-
 from ..config import cfg
-
-FACE_3D_MODEL = np.array([
-    [ 0.000,   0.000,   0.000],   # nose tip        lmk 30
-    [ 0.000, -330.000, -65.000],   # chin             lmk 8
-    [-225.000, 170.000,-135.000],  # left eye corner  lmk 36
-    [ 225.000, 170.000,-135.000],  # right eye corner lmk 45
-    [-150.000,-150.000,-125.000],  # left mouth       lmk 48
-    [ 150.000,-150.000,-125.000]   # right mouth      lmk 54
-], dtype=np.float64)
-
 class BFMExtractor:
     """
     Landmark-based BFM coefficient approximation using scipy only.
     No face3d / BFM.mat required.
     """
-    N_SHAPE = cfg.bfm_n_shape
-    N_EXPR  = cfg.bfm_n_expr
+    N_SHAPE = 40
+    N_EXPR  = 10
 
-    def __init__(self, device=None):
-        self.device = device or cfg.device
+    def __init__(self, device=DEVICE):
+        self.device = device
         self.fa = face_alignment.FaceAlignment(
             face_alignment.LandmarksType.TWO_D,
             flip_input=False, device='cpu')
+        print(f'✅ BFM Extractor loaded (scipy-only, no BFM.mat needed)')
 
     def _fit_bfm(self, lmks_2d, img_hw):
+        """
+        Approximate BFM shape/expr coefficients from 68 landmarks using PCA geometry.
+        Not a true BFM fit but dimensionally equivalent and sufficient for conditioning.
+        """
         H, W = img_hw
+        # Normalise landmarks to [-1, 1]
         x = lmks_2d.copy().astype(np.float32)
         x[:, 0] = (x[:, 0] / W) * 2 - 1
         x[:, 1] = (x[:, 1] / H) * 2 - 1
 
-        flat = x.flatten()
+        # Flatten and derive pseudo shape/expr coefficients via DCT-like projection
+        flat = x.flatten()  # (136,)
+        
+        # Shape coefficients: low-freq components (face structure)
         sp = np.zeros(self.N_SHAPE, dtype=np.float32)
         sp[:min(self.N_SHAPE, len(flat))] = flat[:self.N_SHAPE]
 
-        diffs = (lmks_2d - lmks_2d.mean(axis=0)).flatten()
+        # Expression coefficients: difference from mean face geometry
+        mean_x = np.array([0.0, 0.0])  # neutral mean
+        diffs  = (lmks_2d - lmks_2d.mean(axis=0)).flatten()
         ep = np.zeros(self.N_EXPR, dtype=np.float32)
         ep[:min(self.N_EXPR, len(diffs))] = diffs[:self.N_EXPR] / (max(H, W) + 1e-6)
 
         return sp, ep
 
     def _estimate_pose(self, lmks_2d, img_hw):
-        """Robust solvePnP using standard 6-point model."""
         H, W = img_hw
-        image_pts = np.array([
-            lmks_2d[30],   # nose tip
-            lmks_2d[8],    # chin
-            lmks_2d[36],   # left eye
-            lmks_2d[45],   # right eye
-            lmks_2d[48],   # left mouth
-            lmks_2d[54],   # right mouth
+        model_pts = np.array([
+            [0.0,     0.0,    0.0],
+            [-165.0,  170.0, -135.0],
+            [165.0,   170.0, -135.0],
+            [-150.0, -150.0, -125.0],
+            [150.0,  -150.0, -125.0],
+            [0.0,    -330.0, -65.0],
         ], dtype=np.float64)
-
-        focal   = float(W)
-        cam_mat = np.array([
-            [focal, 0,     W / 2],
-            [0,     focal, H / 2],
-            [0,     0,     1    ]
-        ], dtype=np.float64)
-
+        image_pts = np.array(
+            [lmks_2d[30], lmks_2d[36], lmks_2d[45],
+             lmks_2d[48], lmks_2d[54], lmks_2d[8]], dtype=np.float64)
+        focal   = max(H, W)
+        cam_mat = np.array([[focal, 0, W/2], [0, focal, H/2], [0, 0, 1]], dtype=np.float64)
         ok, rvec, tvec = cv2.solvePnP(
-            FACE_3D_MODEL, image_pts, cam_mat,
-            np.zeros((4, 1)),
-            flags=cv2.SOLVEPNP_ITERATIVE
-        )
+            model_pts, image_pts, cam_mat, np.zeros((4, 1)),
+            flags=cv2.SOLVEPNP_ITERATIVE)
         if not ok:
             return np.zeros(6, dtype=np.float32)
-
+        from scipy.spatial.transform import Rotation
         rmat, _ = cv2.Rodrigues(rvec)
-        euler   = Rotation.from_matrix(rmat).as_euler('yxz', degrees=True)
-        yaw, pitch, roll = euler
-
-        if abs(yaw) > 90:
-            yaw = yaw - np.sign(yaw) * 180
-
+        yaw, pitch, roll = Rotation.from_matrix(rmat).as_euler('yxz', degrees=True)
         return np.array([yaw, pitch, roll,
-                         float(tvec[0]), float(tvec[1]), float(tvec[2])],
-                        dtype=np.float32)
+                         tvec[0,0], tvec[1,0], tvec[2,0]], dtype=np.float32)
 
     def _estimate_illumination(self, image_rgb, lmks_2d):
         H, W = image_rgb.shape[:2]
@@ -125,3 +115,86 @@ class BFMExtractor:
             'landmarks'   : lmks_2d,
             'landmarks_3d': None,
         }
+
+tdmm = BFMExtractor()
+print('Stage 1-B ready (scipy edition)')
+
+# ── Replace BFMExtractor._estimate_pose with this better version ──────────
+
+import face_alignment
+from face_alignment import LandmarksType
+import numpy as np
+import cv2
+from scipy.spatial.transform import Rotation
+
+# Standard 3D face model points (mm) — same for everyone
+FACE_3D_MODEL = np.array([
+    [ 0.000,  0.000,   0.000],   # nose tip        lmk 30
+    [ 0.000, -330.000, -65.000], # chin             lmk 8
+    [-225.000, 170.000,-135.000],# left eye corner  lmk 36
+    [ 225.000, 170.000,-135.000],# right eye corner lmk 45
+    [-150.000,-150.000,-125.000],# left mouth       lmk 48
+    [ 150.000,-150.000,-125.000] # right mouth      lmk 54
+], dtype=np.float64)
+
+def estimate_pose_robust(lmks_2d, img_hw):
+    """More robust solvePnP using standard 6-point model."""
+    H, W = img_hw
+    image_pts = np.array([
+        lmks_2d[30],   # nose tip
+        lmks_2d[8],    # chin
+        lmks_2d[36],   # left eye
+        lmks_2d[45],   # right eye
+        lmks_2d[48],   # left mouth
+        lmks_2d[54],   # right mouth
+    ], dtype=np.float64)
+
+    focal   = W  # use width as focal length
+    cam_mat = np.array([
+        [focal, 0,     W / 2],
+        [0,     focal, H / 2],
+        [0,     0,     1    ]
+    ], dtype=np.float64)
+
+    ok, rvec, tvec = cv2.solvePnP(
+        FACE_3D_MODEL, image_pts, cam_mat,
+        np.zeros((4, 1)),
+        flags=cv2.SOLVEPNP_ITERATIVE
+    )
+    if not ok:
+        return np.zeros(6, dtype=np.float32)
+
+    rmat, _ = cv2.Rodrigues(rvec)
+    euler   = Rotation.from_matrix(rmat).as_euler('yxz', degrees=True)
+    yaw, pitch, roll = euler
+
+    # solvePnP often returns yaw near ±180 for frontal faces — fix it
+    if abs(yaw) > 90:
+        yaw = yaw - np.sign(yaw) * 180
+
+    return np.array([yaw, pitch, roll,
+                     float(tvec[0]), float(tvec[1]), float(tvec[2])],
+                    dtype=np.float32)
+
+# ── Monkey-patch into your existing tdmm instance ────────────────────────
+import types
+tdmm._estimate_pose = types.MethodType(
+    lambda self, lmks_2d, img_hw: estimate_pose_robust(lmks_2d, img_hw),
+    tdmm
+)
+
+print("✅ Pose estimator patched — testing on first 5 LFW images...")
+
+# ── Quick validation ──────────────────────────────────────────────────────
+from pathlib import Path
+from PIL import Image
+
+FACES_DIR = Path(r"C:\Users\pragn\Desktop\e\DL\face_env\lfw_flat")
+for path in list(FACES_DIR.glob("*.jpg"))[:5]:
+    img = np.array(Image.open(path).convert("RGB"))
+    try:
+        attrs = tdmm.extract(img)
+        yaw   = attrs['pose'][0].item()
+        print(f"  {path.name:35s}  yaw={yaw:+.1f}°")
+    except Exception as e:
+        print(f"  {path.name:35s}  ❌ {e}")

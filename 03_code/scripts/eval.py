@@ -1,14 +1,12 @@
 # Usage: python scripts/eval.py --faces_dir 04_data/sample_inputs/ --n_pairs 3
 
 import argparse
-import sys
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
+import csv
 import numpy as np
-from src.pipeline import init_models, run_pipeline
+from src.diffusion.ldm import load_ldm
+from src.pipeline import run_pipeline
 from src.metrics import compute_metrics
-from src.utils import load_image, pick_n_frontal_pairs, write_csv
+from src.utils import load_image, pick_frontal
 
 ABLATION_CONFIGS = {
     "Full Pipeline"  : dict(lambda_id=4.0, lambda_pose=0.1, lambda_expr=0.1, lambda_shape=2.0),
@@ -28,8 +26,8 @@ def main():
     parser.add_argument('--ablation_csv', default='05_results/ablations.csv')
     args = parser.parse_args()
 
-    models = init_models()
-    pairs  = pick_n_frontal_pairs(args.faces_dir, args.n_pairs)
+    models = load_ldm()
+    pairs  = pick_n_frontal_pairs(args.faces_dir, args.n_pairs)  # from src/utils.py
 
     main_rows     = []
     ablation_rows = []
@@ -37,7 +35,7 @@ def main():
     for pair_idx, (src, tgt) in enumerate(pairs):
         print(f"\n── Pair {pair_idx+1}/{len(pairs)} ──")
         for config_name, lambdas in ABLATION_CONFIGS.items():
-            out = run_pipeline(src, tgt, models=models, **lambdas)
+            out = run_pipeline(src, tgt, models, lambdas)
             m   = compute_metrics(src, tgt, out['result'], models['arcface'])
             row = dict(pair=pair_idx+1, config=config_name, **m)
             ablation_rows.append(row)

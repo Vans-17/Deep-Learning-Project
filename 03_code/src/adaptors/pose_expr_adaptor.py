@@ -2,22 +2,26 @@ import torch
 import torch.nn as nn
  
 from ..config import cfg
-
+ 
 class PoseExpressionAdapter(nn.Module):
     """
-    BFM-upgraded adapter. Input is:
+    BFM-upgraded adapter. Input is now:
         pose(6) + shape_coeff(40) + expr_coeff(10) = 56-d
 
-    Key change: shape_coeff carries SOURCE identity geometry,
-    while pose and expr come from TARGET — DiffSwap conditioning strategy.
-    """
-    LATENT_CHANNELS = list(cfg.adapter_latent_channels)
-    INPUT_DIM       = cfg.adapter_input_dim   # pose(6) + shape(40) + expr(10)
-    INJECTION_SCALE = cfg.adapter_injection_scale
+    Key change vs. Lite: shape_coeff carries SOURCE identity geometry,
+    while pose and expr come from TARGET — this is exactly the DiffSwap
+    conditioning strategy: transfer identity shape into the target's animation.
 
-    def __init__(self, device=None):
+    Injection weight raised from 0.003 → 0.02 because BFM coefficients are
+    properly normalised (zero-mean, unit-variance in BFM PCA space), so the
+    signal is no longer drowned by the clamp.
+    """
+    LATENT_CHANNELS = [1280, 640, 320, 320]
+    INPUT_DIM       = 56   # pose(6) + shape(40) + expr(10)
+    INJECTION_SCALE = 0.02 # was 0.003 — safe to raise with proper BFM coefficients
+
+    def __init__(self, device=DEVICE):
         super().__init__()
-        self.device = device or cfg.device
         self.coeff_mlp = nn.Sequential(
             nn.Linear(self.INPUT_DIM, 128),
             nn.SiLU(),
@@ -29,11 +33,13 @@ class PoseExpressionAdapter(nn.Module):
             nn.Sequential(nn.Linear(512, ch), nn.Tanh())
             for ch in self.LATENT_CHANNELS
         ])
-        # Learned gates for conditioning axes
+        # Separate learned gates for each conditioning axis
         self.pose_gate  = nn.Parameter(torch.ones(1))
-        self.shape_gate = nn.Parameter(torch.ones(1))
+        self.shape_gate = nn.Parameter(torch.ones(1))   # NEW — identity shape gate
         self.expr_gate  = nn.Parameter(torch.ones(1))
-        self.to(self.device)
+        self.to(device)
+        print(f'✅ PoseExpressionAdapter (BFM edition): '
+              f'{self.INPUT_DIM}-d input, injection_scale={self.INJECTION_SCALE}')
 
     def forward(self, pose_6d, shape_40d, expr_10d,
                 lambda_pose=1.0, lambda_shape=1.0, lambda_expr=1.0, **kwargs):
@@ -50,3 +56,8 @@ class PoseExpressionAdapter(nn.Module):
         feat      = self.coeff_mlp(torch.cat([pose_s, shape_s, expr_s], dim=-1))
         residuals = [h(feat) for h in self.res_heads]
         return {'residuals': residuals, 'heatmap_feat': feat}
+
+
+pose_expr_adapter = PoseExpressionAdapter()
+print('Stage 2-B ready')
+

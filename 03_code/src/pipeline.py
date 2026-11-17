@@ -14,7 +14,7 @@ Exposes:
 
 import gc
 from pathlib import Path
-from typing import Optional, Union, Dict, Any
+from typing import Optional
 
 import cv2
 import numpy as np
@@ -37,6 +37,7 @@ from src.metrics import compute_metrics
 
 
 # ── Module-level model registry ───────────────────────────────────────────────
+# Populated once by init_models(); reused by every run_pipeline() call.
 _models: dict = {}
 
 
@@ -52,6 +53,7 @@ def init_models(model_id: str = cfg.ldm_model_id) -> dict:
     gc.collect()
     if cfg.device == "cuda":
         torch.cuda.empty_cache()
+        torch.cuda.ipc_collect()
 
     print("── Initialising models ──────────────────────────────────────────")
 
@@ -70,8 +72,6 @@ def init_models(model_id: str = cfg.ldm_model_id) -> dict:
         NULL_EMB=NULL_EMB,
         scheduler_config=scheduler.config,
         injection_scale=cfg.adapter_injection_scale,
-        device=cfg.device,
-        dtype=cfg.dtype,
     )
 
     _models = {
@@ -109,71 +109,57 @@ def _safe_pose(pose_tensor: torch.Tensor) -> torch.Tensor:
 def run_pipeline(
     source_img: np.ndarray,
     target_img: np.ndarray,
-    models: Optional[Any]                 = None,
-    lambda_id: Optional[float]            = None,
-    lambda_pose: Optional[float]          = None,
-    lambda_shape: Optional[float]         = None,
-    lambda_expr: Optional[float]          = None,
-    lambda_light: Optional[float]         = None,
-    strength: Optional[float]             = None,
-    num_steps: Optional[int]              = None,
-    blend_hardness: Optional[float]       = None,
-    verbose: bool                         = True,
-    init_img: Optional[np.ndarray]        = None,
-    **kwargs
+    lambda_id: float      = cfg.default_lambda_id,
+    lambda_pose: float    = cfg.default_lambda_pose,
+    lambda_shape: float   = cfg.default_lambda_shape,
+    lambda_expr: float    = cfg.default_lambda_expr,
+    lambda_light: float   = cfg.default_lambda_light,
+    strength: float       = cfg.default_strength,
+    num_steps: int        = cfg.ddim_steps_denoise,
+    blend_hardness: float = cfg.default_blend_hardness,
+    verbose: bool         = True,
 ) -> dict:
     """
     Run the full LDFaceNet-Lite + BFM face swap pipeline.
 
-    Handles callers passing models dictionary positionally or as keyword argument,
-    as well as dictionaries of config parameters.
+    DiffSwap convention:
+        shape_coeff → from SOURCE  (identity geometry)
+        pose, expr  → from TARGET  (animation)
+
+    Args:
+        source_img    : HxWx3 uint8 numpy — identity donor.
+        target_img    : HxWx3 uint8 numpy — pose / expression donor.
+        lambda_id     : identity token strength.
+        lambda_pose   : pose residual injection strength.
+        lambda_shape  : BFM shape coefficient strength (identity geometry).
+        lambda_expr   : expression coefficient strength.
+        lambda_light  : illumination AdaIN strength (wired, not yet hooked into UNet).
+        strength      : img2img noise strength in (0, 1].
+        num_steps     : DDIM denoising steps.
+        blend_hardness: face mask edge sharpness.
+        verbose       : print stage progress.
+
+    Returns:
+        dict with keys:
+            result        : HxWx3 uint8 numpy — swapped face image
+            identity_sim  : float | None — ArcFace cosine similarity
+            attributes    : dict — tgt BFM attributes
+            src_shape     : Tensor (1, 40) — source shape coefficients
+            tgt_expr      : Tensor (1, 10) — target expression coefficients
     """
-    global _models
+    if not _models:
+        raise RuntimeError("Call init_models() before run_pipeline().")
 
-    # Handle parameters if passed as a dictionary in position 3 or 4
-    config_dict = {}
-    if isinstance(models, dict) and ("arcface" not in models and "vae" not in models):
-        config_dict = models
-        active_models = _models
-    elif isinstance(models, dict):
-        active_models = models
-    elif isinstance(models, (float, int)):
-        if lambda_id is None:
-            lambda_id = float(models)
-        active_models = _models
-    else:
-        active_models = _models
-
-    if isinstance(lambda_id, dict):
-        config_dict.update(lambda_id)
-        lambda_id = None
-
-    if kwargs:
-        config_dict.update(kwargs)
-
-    # Resolve default values
-    l_id     = float(config_dict.get('lambda_id',     lambda_id    if lambda_id    is not None else cfg.default_lambda_id))
-    l_pose   = float(config_dict.get('lambda_pose',   lambda_pose  if lambda_pose  is not None else cfg.default_lambda_pose))
-    l_shape  = float(config_dict.get('lambda_shape',  lambda_shape if lambda_shape is not None else cfg.default_lambda_shape))
-    l_expr   = float(config_dict.get('lambda_expr',   lambda_expr  if lambda_expr  is not None else cfg.default_lambda_expr))
-    l_light  = float(config_dict.get('lambda_light',  lambda_light if lambda_light is not None else cfg.default_lambda_light))
-    str_val  = float(config_dict.get('strength',      strength     if strength     is not None else cfg.default_strength))
-    steps    = int(config_dict.get('num_steps',       num_steps    if num_steps    is not None else cfg.ddim_steps_denoise))
-    b_hard   = float(config_dict.get('blend_hardness', blend_hardness if blend_hardness is not None else cfg.default_blend_hardness))
-
-    if not active_models or "arcface" not in active_models:
-        active_models = init_models()
-
-    arcface   = active_models["arcface"]
-    tdmm      = active_models["tdmm"]
-    bisenet   = active_models["bisenet"]
-    clip_dis  = active_models["clip_dis"]
-    id_proj   = active_models["id_proj"]
-    pose_adap = active_models["pose_adap"]
-    vae       = active_models["vae"]
-    unet      = active_models["unet"]
-    scheduler = active_models["scheduler"]
-    NULL_EMB  = active_models["NULL_EMB"]
+    arcface   = _models["arcface"]
+    tdmm      = _models["tdmm"]
+    bisenet   = _models["bisenet"]
+    clip_dis  = _models["clip_dis"]
+    id_proj   = _models["id_proj"]
+    pose_adap = _models["pose_adap"]
+    vae       = _models["vae"]
+    unet      = _models["unet"]
+    scheduler = _models["scheduler"]
+    NULL_EMB  = _models["NULL_EMB"]
 
     # ── Stage 1: attribute extraction ─────────────────────────────────────
     if verbose:
@@ -211,15 +197,15 @@ def run_pipeline(
 
     src_clip  = clip_dis.extract(source_img)
     clip_id   = src_clip["id_feat"].to(cfg.device)
-    id_tokens = id_proj(src_id_emb, clip_id, lambda_id=l_id)  # (1, 2, 768)
+    id_tokens = id_proj(src_id_emb, clip_id, lambda_id=lambda_id)  # (1, 2, 768)
 
     pose_expr_out = pose_adap(
         pose_6d   = tgt_pose.to(cfg.device),
         shape_40d = src_shape.to(cfg.device),
         expr_10d  = tgt_expr.to(cfg.device),
-        lambda_pose  = l_pose,
-        lambda_shape = l_shape,
-        lambda_expr  = l_expr,
+        lambda_pose  = lambda_pose,
+        lambda_shape = lambda_shape,
+        lambda_expr  = lambda_expr,
     )
 
     if verbose:
@@ -229,9 +215,7 @@ def run_pipeline(
     if verbose:
         print("━━ Stage 3: VAE Encode ━━")
 
-    # init_img (e.g. warp-swap result) carries the identity; target is the
-    # pose/expression donor. Encode whichever seeds the denoiser.
-    z_target = encode_image(target_img if init_img is None else init_img, vae)
+    z_target = encode_image(target_img, vae)
 
     if verbose:
         print(f"  z_target: min={z_target.min():.3f} max={z_target.max():.3f}")
@@ -241,9 +225,9 @@ def run_pipeline(
         print("━━ Stage 4: img2img Denoise ━━")
 
     den_sch = DDIMScheduler.from_config(scheduler.config)
-    den_sch.set_timesteps(steps)
+    den_sch.set_timesteps(num_steps)
 
-    start_step = int(steps * (1 - str_val))
+    start_step = int(num_steps * (1 - strength))
     timesteps  = den_sch.timesteps[start_step:]
     t_start    = timesteps[0]
 
@@ -260,6 +244,7 @@ def run_pipeline(
         if verbose and step_idx % 5 == 0:
             print(f"  Step {step_idx + 1}/{len(timesteps)}")
 
+        # CFG: null + identity tokens concatenated as conditioning context
         cond_hs   = torch.cat(
             [NULL_EMB.expand(z.shape[0], -1, -1).to(cfg.dtype),
              id_tokens.to(cfg.dtype)],
@@ -268,25 +253,12 @@ def run_pipeline(
         uncond_hs = torch.zeros_like(cond_hs)
         cfg_hs    = torch.cat([uncond_hs, cond_hs])
 
-        latent_input   = torch.cat([z.to(cfg.dtype)] * 2)
+        latent_input   = torch.cat([z.half()] * 2)
         noise_pred_all = unet(latent_input, t, encoder_hidden_states=cfg_hs).sample
         noise_uncond, noise_cond = noise_pred_all.chunk(2)
-        cfg_scale_eff  = float(config_dict.get('cfg_scale') or cfg.cfg_scale)
-        noise_pred = (noise_uncond + cfg_scale_eff * (noise_cond - noise_uncond)).float()
+        noise_pred = (noise_uncond + 3.5 * (noise_cond - noise_uncond)).float()
 
-        if cfg.id_guidance_scale > 0:
-            idg_hs = torch.cat(
-                [NULL_EMB.expand(z.shape[0], -1, -1).to(cfg.dtype),
-                 torch.zeros_like(id_tokens.to(cfg.dtype))],
-                dim=1,
-            )
-            noise_noid = unet(
-                latent_input[:1], t, encoder_hidden_states=idg_hs
-            ).sample.float()
-            noise_pred = noise_pred + cfg.id_guidance_scale * (
-                noise_cond - noise_noid
-            )
-
+        # Scheduled residual injection — first 90 % of steps only
         if step_idx < int(len(timesteps) * 0.9) and residuals is not None:
             res = (
                 residuals[0]
@@ -295,10 +267,10 @@ def run_pipeline(
                 .expand_as(noise_pred)
             )
             noise_pred = noise_pred + (
-                pose_adap.INJECTION_SCALE * l_pose
+                pose_adap.INJECTION_SCALE * lambda_pose
             ) * torch.clamp(res, -0.5, 0.5)
 
-        z = den_sch.step(noise_pred, t, z, eta=float(config_dict.get('eta', 0.0))).prev_sample.float()
+        z = den_sch.step(noise_pred, t, z).prev_sample.float()
         z = z.clamp(-8, 8)
 
     if verbose:
@@ -313,7 +285,7 @@ def run_pipeline(
         z_target      = z_target,
         face_mask     = tgt_face_mask,
         vae           = vae,
-        blend_hardness= b_hard,
+        blend_hardness= blend_hardness,
     )
 
     result = (result_tensor.float().clamp(-1, 1) + 1) / 2
@@ -340,214 +312,10 @@ def run_pipeline(
     }
 
 
-# ── Landmark-based warp swap (classical fallback) ─────────────────────────────
-
-def _skin_statistics_mask(face_mask: np.ndarray, lmks: np.ndarray,
-                          H: int, W: int) -> np.ndarray:
-    """
-    Boolean mask over the inner face region only (cheeks + forehead),
-    excluding eyes, eyebrows, mouth and the mask fringe. Used to compute
-    color-transfer statistics so hair/background never bias skin tone.
-    """
-    skin = face_mask.astype(np.uint8).copy()
-
-    # Shrink inward from the ellipse fringe (hair / background edge)
-    skin = cv2.erode(skin, np.ones((25, 25), np.uint8))
-
-    # Exclude eyes (36-41, 42-47), brows (17-26) and mouth (48-67)
-    for pts in (lmks[17:27], lmks[36:48], lmks[48:68]):
-        poly = cv2.convexHull(pts.astype(np.float32).reshape(-1, 1, 2)).astype(np.int32)
-        cv2.fillConvexPoly(skin, poly, 0)
-
-    return skin.astype(bool)
-
-def run_warp_swap(
-    source_img: np.ndarray,
-    target_img: np.ndarray,
-    models: Optional[Any] = None,
-    verbose: bool = True,
-    **kwargs
-) -> dict:
-    """
-    Classical face swap: estimate a similarity transform from the source
-    landmarks to the target landmarks, warp the source face into the target
-    frame, then Poisson-blend it with the target face mask.
-
-    This reliably transfers identity (unlike the untrained diffusion
-    conditioning path, which the UNet largely ignores on CPU).
-    """
-    global _models
-    active_models = models if isinstance(models, dict) and "tdmm" in models else _models
-    if not active_models:
-        active_models = init_models()
-
-    tdmm    = active_models["tdmm"]
-    bisenet = active_models["bisenet"]
-    arcface = active_models["arcface"]
-
-    src_lmks = tdmm.extract(source_img)["landmarks"].astype(np.float32)
-    tgt_bfm  = tdmm.extract(target_img)
-    tgt_lmks = tgt_bfm["landmarks"].astype(np.float32)
-
-    if src_lmks.shape != tgt_lmks.shape:
-        raise ValueError("Landmark sets differ — cannot align.")
-
-    H, W = target_img.shape[:2]
-
-    # ── Warp: global similarity (identity-preserving) + optional gentle
-    #    piecewise blend for local alignment without distortion ────────────
-    method     = kwargs.get('warp_method', 'global')
-    warp_scale = float(kwargs.get('warp_scale', 1.0))   # enlarge source face
-    pw_weight  = float(kwargs.get('pw_weight', 0.0))    # 0=global only, 1=full piecewise
-    warp_dy    = float(kwargs.get('warp_dy', 0.0))      # vertical shift (px, + = up)
-    target_skin_weight = float(kwargs.get('target_skin_weight', kwargs.get('skin_tone_weight', 0.0)))
-    skin_lightness     = float(kwargs.get('skin_lightness', kwargs.get('lightness', 0.0)))
-
-    # Enlarge the TARGET landmarks outward from their centroid so the fitted
-    # similarity transform maps the source face onto a larger region.
-    # (Scaling the source landmarks instead has the inverse effect — the
-    # fitted transform shrinks the warped face.)
-    tgt_fit = tgt_lmks.copy()
-    if warp_scale != 1.0:
-        c = tgt_fit.mean(axis=0)
-        tgt_fit = c + (tgt_fit - c) * warp_scale
-    if warp_dy != 0.0:
-        tgt_fit[:, 1] -= warp_dy  # shift target landmarks up by warp_dy px
-
-    M, _ = cv2.estimateAffinePartial2D(
-        src_lmks, tgt_fit, method=cv2.RANSAC,
-        ransacReprojThreshold=5.0, maxIters=2000,
-    )
-    if M is None:
-        raise RuntimeError("Landmark alignment failed.")
-    src_global = cv2.warpAffine(
-        source_img, M, (W, H), borderMode=cv2.BORDER_REFLECT,
-    )
-
-    if pw_weight > 0:
-        # Local piecewise alignment, blended in gently so the source's
-        # proportions are preserved (reduces piecewise distortion)
-        M_glob, inliers = cv2.estimateAffinePartial2D(
-            src_lmks, tgt_fit, method=cv2.RANSAC,
-            ransacReprojThreshold=5.0, maxIters=2000,
-        )
-        inlier_mask = inliers.ravel() == 1
-        if inlier_mask.sum() < 30:
-            inlier_mask = np.ones(len(src_lmks), dtype=bool)
-
-        src_in = src_lmks[inlier_mask]
-        tgt_in = tgt_fit[inlier_mask]
-
-        border = np.array([
-            [0, 0], [W - 1, 0], [0, H - 1], [W - 1, H - 1],
-            [W // 2, 0], [W // 2, H - 1], [0, H // 2], [W - 1, H // 2],
-        ], dtype=np.float32)
-        src_pts = np.vstack([src_in, border])
-        tgt_pts = np.vstack([tgt_in, border])
-
-        from scipy.spatial import Delaunay
-        tri = Delaunay(src_pts).simplices
-
-        src_pw = np.zeros_like(target_img)
-        for t in tri:
-            s = src_pts[t].astype(np.float32)
-            d = tgt_pts[t].astype(np.float32)
-            if (d[:, 0] < 0).any() or (d[:, 0] >= W).any() or \
-               (d[:, 1] < 0).any() or (d[:, 1] >= H).any():
-                continue
-            A = cv2.getAffineTransform(s, d)
-            mask = np.zeros((H, W), np.uint8)
-            cv2.fillConvexPoly(mask, d.astype(np.int32), 1)
-            warped = cv2.warpAffine(source_img, A, (W, H))
-            src_pw[mask == 1] = warped[mask == 1]
-        src_pw = src_pw.astype(np.uint8)
-
-        # Blend piecewise result in with weight pw_weight; the global warp
-        # remains the base so identity proportions are kept
-        src_warped = cv2.addWeighted(src_global, 1.0 - pw_weight,
-                                     src_pw, pw_weight, 0)
-    else:
-        src_warped = src_global
-
-    _, face_mask, _ = bisenet.parse(target_img, tgt_lmks)
-    mask_u8 = (face_mask.astype(np.uint8) * 255)
-
-    # ── Color match: fit warped source face lighting to the target ─────────
-    # Lab-space Reinhard transfer on SKIN PIXELS ONLY (exclude eyes, brows,
-    # mouth and the mask fringe so hair/background don't bias the statistics).
-    skin = _skin_statistics_mask(mask_u8, tgt_lmks, H, W)
-    m = cv2.GaussianBlur(skin.astype(np.float32), (0, 0), 7)
-    m = m / 255.0
-    m3 = m[..., None]
-
-    src_lab = cv2.cvtColor(src_warped, cv2.COLOR_RGB2LAB).astype(np.float32)
-    tgt_lab = cv2.cvtColor(target_img, cv2.COLOR_RGB2LAB).astype(np.float32)
-    matched_lab = src_lab.copy()
-    for c in range(3):
-        s = src_lab[..., c]
-        t = tgt_lab[..., c]
-        s_m = (s * m).sum() / m.sum()
-        t_m = (t * m).sum() / m.sum()
-        s_std = np.sqrt(((s - s_m) ** 2 * m).sum() / m.sum()) + 1e-6
-        t_std = np.sqrt(((t - t_m) ** 2 * m).sum() / m.sum()) + 1e-6
-        # When target_skin_weight > 0, suppress source color variance and pull skin chrominance toward target
-        var_scale = max(0.0, 1.0 - target_skin_weight) if c > 0 else max(0.0, 1.0 - 0.3 * target_skin_weight)
-        matched_lab[..., c] = (s - s_m) * (t_std / s_std) * var_scale + t_m
-    matched_lab = np.clip(matched_lab, 0, 255).astype(np.uint8)
-    matched_rgb = cv2.cvtColor(matched_lab, cv2.COLOR_LAB2RGB).astype(np.float32)
-
-    # Feather the transfer across the face mask so skin tone transitions smoothly
-    m_feather = cv2.GaussianBlur(mask_u8.astype(np.float32), (0, 0), 15) / 255.0
-    m_feather = m_feather[..., None]
-    src_warped = (src_warped.astype(np.float32) * (1 - m_feather)
-                  + matched_rgb * m_feather)
-    src_warped = np.clip(src_warped, 0, 255).astype(np.uint8)
-
-    # ── Feather mask edges so the blend boundary is invisible ──────────────
-    mask_feathered = np.clip(m_feather[..., 0] * 255, 0, 255).astype(np.uint8)
-
-    center = (int(tgt_lmks[:, 0].mean()), int(tgt_lmks[:, 1].mean()))
-    result = cv2.seamlessClone(
-        src_warped, target_img, mask_feathered, center, cv2.NORMAL_CLONE,
-    )
-
-    # ── Cleanup: smooth triangle seams / artifacts inside the face region ──
-    # A gentle bilateral filter preserves edges (eyes, mouth) while removing
-    # the noise left by the warp / piecewise blending. Applied only inside
-    # the feathered mask so the background stays untouched.
-    clean = cv2.bilateralFilter(result, 9, 40, 40)
-    m3 = m_feather
-    result = (result.astype(np.float32) * (1 - m3)
-              + clean.astype(np.float32) * m3)
-    result = np.clip(result, 0, 255).astype(np.uint8)
-
-    # ── Skin lightness adjustment (make swapped face skin lighter/fairer) ───
-    if skin_lightness != 0.0:
-        res_lab = cv2.cvtColor(result, cv2.COLOR_RGB2LAB).astype(np.float32)
-        l_norm = np.clip(res_lab[..., 0] / 255.0, 1e-4, 1.0)
-        gamma = 1.0 / (1.0 + skin_lightness)
-        l_light = (l_norm ** gamma) * 255.0
-        res_lab[..., 0] = res_lab[..., 0] * (1.0 - m_feather[..., 0]) + l_light * m_feather[..., 0]
-        result = cv2.cvtColor(np.clip(res_lab, 0, 255).astype(np.uint8), cv2.COLOR_LAB2RGB)
-
-    try:
-        res_id = arcface.extract(result)
-        id_sim = arcface.cosine_sim(arcface.extract(source_img), res_id)
-    except Exception:
-        id_sim = None
-
-    if verbose:
-        id_s = f"{id_sim:.4f}" if id_sim is not None else "N/A"
-        print(f"  ID-sim (warp swap): {id_s}")
-
-    return {"result": result, "identity_sim": id_sim, "attributes": tgt_bfm,
-            "face_mask": m_feather[..., 0]}
-
-
 # ── Checkpoint helpers ────────────────────────────────────────────────────────
 
 def save_pipeline(path: Path = cfg.checkpoint_path):
-    """Save state dicts of trainable conditioning modules."""
+    """Save state dicts of the four trainable conditioning modules."""
     if not _models:
         raise RuntimeError("Call init_models() first.")
     torch.save(
@@ -563,7 +331,7 @@ def save_pipeline(path: Path = cfg.checkpoint_path):
 
 
 def load_pipeline(path: Path = cfg.checkpoint_path):
-    """Restore state dicts of conditioning modules from a checkpoint."""
+    """Restore state dicts of the four conditioning modules from a checkpoint."""
     if not _models:
         raise RuntimeError("Call init_models() first.")
     ckpt = torch.load(path, map_location=cfg.device)
@@ -601,9 +369,6 @@ def run_ablation(
     if configs is None:
         configs = ABLATION_CONFIGS
 
-    if not _models:
-        init_models()
-
     arcface = _models["arcface"]
     results: dict = {}
     metrics: dict = {}
@@ -628,8 +393,6 @@ def run_ablation(
 
     n = len(results)
     fig, axes = plt.subplots(1, n, figsize=(4 * n, 4))
-    if n == 1:
-        axes = [axes]
     for ax, (title, img) in zip(axes, results.items()):
         m = metrics[title]
         ax.imshow(img)
@@ -699,9 +462,6 @@ def run_multi_pair_ablation(
     if configs is None:
         configs = ABLATION_CONFIGS
 
-    if not _models:
-        init_models()
-
     arcface  = _models["arcface"]
     averaged = {title: {"id_sim": [], "ssim": [], "l2": []} for title in configs}
 
@@ -729,3 +489,88 @@ def run_multi_pair_ablation(
             f"{np.nanmean(vals['ssim']):>8.4f}"
         )
     return averaged
+
+
+# ── Interactive Jupyter demo ───────────────────────────────────────────────────
+
+def interactive_demo(src_img: np.ndarray, tgt_img: np.ndarray):
+    """Launch an ipywidgets slider UI. Run inside a Jupyter notebook cell."""
+    try:
+        import ipywidgets as widgets
+        from IPython.display import display
+    except ImportError:
+        raise ImportError("pip install ipywidgets")
+
+    slider_id    = widgets.FloatSlider(value=2.5, min=0.0, max=5.0, step=0.1,
+                                       description="Identity:", continuous_update=False)
+    slider_pose  = widgets.FloatSlider(value=0.3, min=0.0, max=2.0, step=0.05,
+                                       description="Pose:", continuous_update=False)
+    slider_expr  = widgets.FloatSlider(value=0.3, min=0.0, max=2.0, step=0.05,
+                                       description="Expression:", continuous_update=False)
+    slider_shape = widgets.FloatSlider(value=1.2, min=0.0, max=3.0, step=0.1,
+                                       description="Shape:", continuous_update=False)
+    slider_str   = widgets.FloatSlider(value=0.55, min=0.3, max=0.9, step=0.05,
+                                       description="Strength:", continuous_update=False)
+
+    btn_pose = widgets.Button(description="Pose Only",       button_style="info")
+    btn_expr = widgets.Button(description="Expression Only", button_style="warning")
+    btn_id   = widgets.Button(description="Fix Identity",    button_style="danger")
+
+    def set_pose_only(_):
+        slider_id.value=2.5; slider_pose.value=1.5
+        slider_expr.value=0.0; slider_shape.value=0.0
+
+    def set_expr_only(_):
+        slider_id.value=2.5; slider_pose.value=0.0
+        slider_expr.value=1.5; slider_shape.value=0.0
+
+    def set_fix_id(_):
+        slider_id.value=4.0; slider_pose.value=0.3
+        slider_expr.value=0.3; slider_shape.value=1.5
+
+    btn_pose.on_click(set_pose_only)
+    btn_expr.on_click(set_expr_only)
+    btn_id.on_click(set_fix_id)
+
+    run_btn    = widgets.Button(description="▶ Run Swap", button_style="success")
+    output_box = widgets.Output()
+
+    ui = widgets.VBox([
+        widgets.HTML("<h3>🎭 LDFaceNet Interactive Demo</h3>"),
+        widgets.HTML("<b>Presets:</b>"),
+        widgets.HBox([btn_pose, btn_expr, btn_id]),
+        widgets.HTML("<b>Manual controls:</b>"),
+        slider_id, slider_pose, slider_expr, slider_shape, slider_str,
+        run_btn, output_box,
+    ])
+
+    def on_run(_):
+        output_box.clear_output()
+        with output_box:
+            print("⏳ Running pipeline …")
+            try:
+                out = run_pipeline(
+                    source_img    = src_img,
+                    target_img    = tgt_img,
+                    lambda_id     = slider_id.value,
+                    lambda_pose   = slider_pose.value,
+                    lambda_expr   = slider_expr.value,
+                    lambda_shape  = slider_shape.value,
+                    strength      = slider_str.value,
+                    num_steps     = 30,
+                    verbose       = False,
+                )
+                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+                axes[0].imshow(src_img); axes[0].set_title("Source"); axes[0].axis("off")
+                axes[1].imshow(tgt_img); axes[1].set_title("Target"); axes[1].axis("off")
+                id_s = f"{out['identity_sim']:.3f}" if out["identity_sim"] else "N/A"
+                axes[2].imshow(out["result"])
+                axes[2].set_title(f"Result  ID-sim={id_s}", color="green")
+                axes[2].axis("off")
+                plt.tight_layout()
+                plt.show()
+            except Exception as exc:
+                print(f"❌ {exc}")
+
+    run_btn.on_click(on_run)
+    display(ui)
