@@ -2,23 +2,24 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import cv2
-from ..config import cfg
 import insightface
 from insightface.app import FaceAnalysis
+
+from ..config import cfg
 
 class ArcFaceIdentityExtractor:
     """
     Extracts a 512-d L2-normalised identity embedding.
-    Uses buffalo_sc (small/fast) instead of buffalo_l.
+    Uses buffalo_sc (small/fast).
     """
-    def __init__(self, device=DEVICE):
-        providers = ['CPUExecutionProvider']
-        # buffalo_sc = smaller model, still accurate enough for a course project
-        self.app = FaceAnalysis(name='buffalo_sc', providers=providers)
-        # Smaller detection size saves VRAM
-        self.app.prepare(ctx_id=0 if device == 'cuda' else -1, det_size=(320, 320))
-        self.device = device
-        print('✅ ArcFace (buffalo_sc) loaded')
+    def __init__(self, device=None, model_name=None, det_size=None):
+        self.device = device or cfg.device
+        model_name = model_name or cfg.arcface_model_name
+        det_size = det_size or cfg.arcface_det_size
+
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider'] if self.device == 'cuda' else ['CPUExecutionProvider']
+        self.app = FaceAnalysis(name=model_name, providers=providers)
+        self.app.prepare(ctx_id=0 if self.device == 'cuda' else -1, det_size=det_size)
 
     @torch.no_grad()
     def extract(self, image: np.ndarray) -> torch.Tensor:
@@ -33,7 +34,3 @@ class ArcFaceIdentityExtractor:
 
     def cosine_sim(self, a: torch.Tensor, b: torch.Tensor) -> float:
         return F.cosine_similarity(a, b).item()
-
-
-arcface = ArcFaceIdentityExtractor()
-print('Stage 1-A ready')

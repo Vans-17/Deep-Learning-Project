@@ -1,11 +1,14 @@
-# Usage: python scripts/demo.py --source src.jpg --target tgt.jpg
+# Usage: python demo.py --source src.jpg --target tgt.jpg
 
 import argparse
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 import ipywidgets as widgets
 import matplotlib.pyplot as plt
 from IPython.display import display
-from src.diffusion.ldm import load_ldm
-from src.pipeline import run_pipeline
+from src.pipeline import init_models, run_pipeline
 from src.utils import load_image
 
 def main():
@@ -14,7 +17,7 @@ def main():
     parser.add_argument('--target', required=True)
     args = parser.parse_args()
 
-    models  = load_ldm()
+    models  = init_models()
     src_img = load_image(args.source)
     tgt_img = load_image(args.target)
 
@@ -29,14 +32,19 @@ def main():
     def on_run(b):
         out_box.clear_output()
         with out_box:
-            result = run_pipeline(src_img, tgt_img, models, dict(
-                lambda_id=s_id.value, lambda_shape=s_shape.value,
-                lambda_pose=s_pose.value, lambda_expr=s_expr.value,
-            ))
+            result = run_pipeline(
+                src_img, tgt_img,
+                models=models,
+                lambda_id=s_id.value,
+                lambda_shape=s_shape.value,
+                lambda_pose=s_pose.value,
+                lambda_expr=s_expr.value,
+            )
             fig, axes = plt.subplots(1, 3, figsize=(12, 4))
             axes[0].imshow(src_img);         axes[0].set_title('Source');  axes[0].axis('off')
             axes[1].imshow(tgt_img);         axes[1].set_title('Target');  axes[1].axis('off')
-            axes[2].imshow(result['result']); axes[2].set_title(f"Result  ID={result['identity_sim']:.3f}"); axes[2].axis('off')
+            id_sim_str = f"{result['identity_sim']:.3f}" if result['identity_sim'] is not None else "N/A"
+            axes[2].imshow(result['result']); axes[2].set_title(f"Result  ID={id_sim_str}"); axes[2].axis('off')
             plt.tight_layout(); plt.show()
 
     run_btn.on_click(on_run)

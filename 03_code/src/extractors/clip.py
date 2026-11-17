@@ -1,36 +1,31 @@
- 
 import numpy as np
 import torch
 import torch.nn as nn
+from PIL import Image
 from transformers import CLIPProcessor, CLIPVisionModelWithProjection
 from ..config import cfg
- 
+
 class CLIPDisentangler(nn.Module):
     """
-    Same as original but:
-    - Backbone loaded in fp16
-    - Moved to CPU between calls to free VRAM
-    - Projection dims halved (POSE/EXPR: 64→32, LIGHT: 32→16, ID: 256→128)
+    CLIP Disentangler extracting pose, expr, light, id features.
     """
     CLIP_DIM   = 512
-    POSE_DIM   = 32
-    EXPR_DIM   = 32
-    LIGHT_DIM  = 16
-    ID_DIM     = 128
+    POSE_DIM   = cfg.clip_pose_dim
+    EXPR_DIM   = cfg.clip_expr_dim
+    LIGHT_DIM  = cfg.clip_light_dim
+    ID_DIM     = cfg.clip_id_dim
 
-    def __init__(self, device=DEVICE):
+    def __init__(self, device=None):
         super().__init__()
-        self.device = device
-        # Load backbone on CPU in fp16 to save VRAM
+        self.device = device or cfg.device
         self.clip = CLIPVisionModelWithProjection.from_pretrained(
-            'openai/clip-vit-base-patch32',
-            torch_dtype=torch.float16
+            cfg.clip_model_id,
+            torch_dtype=cfg.dtype
         ).eval()
         for p in self.clip.parameters():
             p.requires_grad_(False)
-        self.processor = CLIPProcessor.from_pretrained('openai/clip-vit-base-patch32')
+        self.processor = CLIPProcessor.from_pretrained(cfg.clip_model_id)
 
-        # Smaller projections
         total = self.POSE_DIM + self.EXPR_DIM + self.LIGHT_DIM + self.ID_DIM
         assert total <= self.CLIP_DIM
         self.proj_pose  = nn.Linear(self.CLIP_DIM, self.POSE_DIM,  bias=False)
@@ -38,9 +33,7 @@ class CLIPDisentangler(nn.Module):
         self.proj_light = nn.Linear(self.CLIP_DIM, self.LIGHT_DIM, bias=False)
         self.proj_id    = nn.Linear(self.CLIP_DIM, self.ID_DIM,    bias=False)
         self._init_orthogonal_weights()
-        # Keep projections in fp32 on device; CLIP backbone on CPU
         self.to('cpu')
-        print('✅ CLIP Disentangler loaded (fp16 backbone, cpu-idle)')
 
     def _init_orthogonal_weights(self):
         torch.manual_seed(42)
@@ -55,14 +48,14 @@ class CLIPDisentangler(nn.Module):
 
     @torch.no_grad()
     def extract(self, image_rgb: np.ndarray) -> dict:
-        # Temporarily move CLIP to GPU for inference
         self.clip = self.clip.to(self.device)
         pil    = Image.fromarray(image_rgb)
         inputs = self.processor(images=pil, return_tensors='pt')
-        pv     = inputs['pixel_values'].to(self.device, dtype=torch.float16)
-        emb    = self.clip(pixel_values=pv).image_embeds.float()  # (1, 512)
-        self.clip = self.clip.to('cpu')   # free VRAM
-        torch.cuda.empty_cache()
+        pv     = inputs['pixel_values'].to(self.device, dtype=cfg.dtype)
+        emb    = self.clip(pixel_values=pv).image_embeds.float()
+        self.clip = self.clip.to('cpu')
+        if self.device == 'cuda':
+            torch.cuda.empty_cache()
         emb = emb.to('cpu')
         return {
             'clip_embedding': emb,
@@ -80,7 +73,3 @@ class CLIPDisentangler(nn.Module):
             for j in range(i+1, len(W)):
                 loss = loss + (W[i] @ W[j].T).pow(2).mean()
         return loss
-
-
-clip_disentangler = CLIPDisentangler()
-print('Stage 1-D ready')

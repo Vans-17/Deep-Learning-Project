@@ -6,8 +6,9 @@ from ..config import cfg
 class IlluminationAdaIN(nn.Module):
     """Same as original, just smaller hidden dim (256→128)."""
 
-    def __init__(self, sh_dim=27, device=DEVICE):
+    def __init__(self, sh_dim=27, device=None):
         super().__init__()
+        self.device = device or cfg.device
         self.sh_mlp = nn.Sequential(
             nn.Linear(sh_dim, 64), nn.SiLU(), nn.Linear(64, 128), nn.SiLU())
         channels = [1280, 640, 320, 320]
@@ -16,8 +17,7 @@ class IlluminationAdaIN(nn.Module):
         for g, b in zip(self.gamma_heads, self.beta_heads):
             nn.init.zeros_(g.weight); nn.init.ones_(g.bias)
             nn.init.zeros_(b.weight); nn.init.zeros_(b.bias)
-        self.to(device)
-        print('✅ IlluminationAdaIN (lite) loaded')
+        self.to(self.device)
 
     def forward(self, sh_coeffs, feature_map, res_idx, lambda_light=1.0):
         shared = self.sh_mlp(sh_coeffs)
@@ -27,7 +27,3 @@ class IlluminationAdaIN(nn.Module):
         std    = feature_map.std(dim=[2,3],  keepdim=True).clamp(min=1e-5)
         f_out  = gamma * (feature_map - mean) / std + beta
         return (1 - lambda_light) * feature_map + lambda_light * f_out
-
-
-illum_adain = IlluminationAdaIN()
-print('Stage 2-C ready')

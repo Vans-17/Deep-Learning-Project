@@ -3,14 +3,16 @@ import torch.nn as nn
 import torch.nn.functional as F
  
 from ..config import cfg
+
 class IdentityProjector(nn.Module):
     """
     Projects ArcFace + CLIP-id embeddings into cross-attention token space.
     Lite: num_tokens 4→2, hidden 1024→512
     """
     def __init__(self, arcface_dim=512, clip_id_dim=128,
-                 cross_attn_dim=768, num_tokens=2, device=DEVICE):
+                 cross_attn_dim=768, num_tokens=2, device=None):
         super().__init__()
+        self.device         = device or cfg.device
         self.num_tokens     = num_tokens
         self.cross_attn_dim = cross_attn_dim
 
@@ -26,8 +28,7 @@ class IdentityProjector(nn.Module):
             nn.Linear(256, num_tokens * cross_attn_dim),
         )
         self.fusion_alpha = nn.Parameter(torch.tensor(0.5))
-        self.to(device)
-        print(f'✅ IdentityProjector: {arcface_dim}-d → {num_tokens}×{cross_attn_dim}-d')
+        self.to(self.device)
 
     def forward(self, arcface_emb, clip_id_feat, lambda_id=1.0):
         B        = arcface_emb.shape[0]
@@ -38,7 +39,3 @@ class IdentityProjector(nn.Module):
         alpha    = torch.sigmoid(self.fusion_alpha)
         tokens   = F.normalize(alpha * arc_tok + (1-alpha) * clip_tok, dim=-1)
         return tokens * lambda_id
-
-
-id_projector = IdentityProjector()
-print('Stage 2-A ready')

@@ -1,50 +1,49 @@
 import os
 import sys
 import subprocess
+import cv2
 import numpy as np
 import torch
 import torchvision.transforms as T
 from pathlib import Path
- 
+
 from ..config import cfg
 
 class LiteFaceSegmentor:
     """
     Tries to load BiSeNet for accurate segmentation.
     Falls back gracefully to a fast landmark-based ellipse mask.
-    The ellipse fallback is completely fine for a course project.
     """
-    FACE_LABELS = [1,2,3,4,5,10,11,12,13]
+    FACE_LABELS = list(cfg.bisenet_face_labels)
 
-    def __init__(self, device=DEVICE):
-        self.device    = device
+    def __init__(self, device=None):
+        self.device    = device or cfg.device
         self.net       = None
         self.available = False
         self._try_load_bisenet()
 
     def _try_load_bisenet(self):
-        model_path = Path('bisenet_face_parsing.pth')
+        model_path = Path(cfg.bisenet_weights_path)
         if not model_path.exists():
             print('  Trying to download BiSeNet weights...')
             try:
-                import subprocess
                 subprocess.run(
-                    ['gdown', '--fuzzy',
-                     'https://drive.google.com/file/d/154JgKpzCPW82qINcVieuPH3fZ2e0P812/view?usp=sharing',
-                     '-O', 'bisenet_face_parsing.pth'],
+                    ['gdown', '--fuzzy', cfg.bisenet_gdrive_url,
+                     '-O', str(model_path)],
                     capture_output=True, timeout=60)
             except Exception:
                 pass
         if model_path.exists():
-            if not os.path.exists('face-parsing.PyTorch'):
-                os.system('git clone https://github.com/zllrunning/face-parsing.PyTorch.git -q')
-            sys.path.insert(0, 'face-parsing.PyTorch')
+            repo_dir = Path('face-parsing.PyTorch')
+            if not repo_dir.exists():
+                os.system(f'git clone {cfg.bisenet_repo_url} -q')
+            if str(repo_dir) not in sys.path:
+                sys.path.insert(0, str(repo_dir))
             try:
                 from model import BiSeNet as _BiSeNet
                 net = _BiSeNet(n_classes=19)
-                net.load_state_dict(torch.load('bisenet_face_parsing.pth', map_location='cpu'))
+                net.load_state_dict(torch.load(model_path, map_location='cpu'))
                 net.eval()
-                # Keep BiSeNet on CPU to save VRAM — move to GPU only during inference
                 self.net       = net
                 self.available = True
                 print('✅ BiSeNet loaded (CPU idle, GPU during inference)')
@@ -71,7 +70,6 @@ class LiteFaceSegmentor:
                  else np.zeros((H, W), bool)
             return np.zeros((H,W), np.int32), fm, np.zeros((H,W), bool)
 
-        # Move to GPU just for this forward pass
         net = self.net.to(self.device)
         tf  = T.Compose([T.ToPILImage(), T.Resize((512,512)), T.ToTensor(),
                          T.Normalize([.485,.456,.406],[.229,.224,.225])])
@@ -79,12 +77,9 @@ class LiteFaceSegmentor:
         out = net(x)[0]
         seg = out.argmax(1).squeeze().cpu().numpy().astype(np.int32)
         seg = cv2.resize(seg.astype(np.uint8),(W,H),interpolation=cv2.INTER_NEAREST)
-        net.to('cpu')  # free VRAM immediately
-        torch.cuda.empty_cache()
+        net.to('cpu')
+        if self.device == 'cuda':
+            torch.cuda.empty_cache()
         face_mask = np.isin(seg, self.FACE_LABELS)
         hair_mask = (seg == 17)
         return seg.astype(np.int32), face_mask, hair_mask
-
-
-bisenet = LiteFaceSegmentor()
-print('Stage 1-C ready')
